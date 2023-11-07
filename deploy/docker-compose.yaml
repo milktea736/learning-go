@@ -1,0 +1,25 @@
+version: '3'
+services:
+  cassandra:
+    image: cassandra:latest
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+
+
+  golang:
+    image: golang:latest
+    volumes:
+      - /home/ivan/works/learning-go/cassandra-client:/root/app
+    depends_on:
+      - cassandra
+    command: tail -f /dev/null
+    environment:
+      - CASSANDRA_HOST=cassandra
+
+
+volumes:
+  cassandra-data:
+
+

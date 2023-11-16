@@ -1,4 +1,4 @@
-package client
+package data
 
 import (
 	"github.com/brianvoe/gofakeit/v6"
@@ -10,7 +10,7 @@ type User struct {
 	Phone  string
 }
 
-func GetFakeUsers(number int) []User {
+func CreateFakeUsers(number int) []User {
 	users := make([]User, number)
 
 	for i := 0; i < number; i++ {

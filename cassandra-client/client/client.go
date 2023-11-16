@@ -1,20 +1,41 @@
 package client
 
 import (
+	"cassandra-client/data"
 	"fmt"
 	"os"
 
 	"github.com/gocql/gocql"
 )
 
-var CASSANDRA_HOST string = os.Getenv("CASSANDRA_HOST")
+var CassandraHost, UserName, Password string
+
+func init() {
+	CassandraHost = os.Getenv("CASSANDRA_HOST")
+	UserName = os.Getenv("CASSANDRA_USERNAME")
+	Password = os.Getenv("CASSANDRA_PASSWORD")
+	if CassandraHost == "" {
+		CassandraHost = "localhost"
+	}
+	if UserName == "" {
+		UserName = "cassandra"
+	}
+	if Password == "" {
+		Password = "cassandra"
+	}
+}
 
 type Client struct {
 	session *gocql.Session
 }
 
 func (c *Client) Connect() error {
-	cluster := gocql.NewCluster(CASSANDRA_HOST)
+
+	cluster := gocql.NewCluster(CassandraHost)
+	cluster.Authenticator = gocql.PasswordAuthenticator{
+		Username: UserName,
+		Password: Password,
+	}
 	sesion, err := cluster.CreateSession()
 	if err != nil {
 		return fmt.Errorf("error connecting to Cassandra: %s", err)
@@ -34,14 +55,41 @@ func (c *Client) CreateTable(keyspace string, table string) error {
 	return c.session.Query(cql).Exec()
 }
 
-func (c *Client) InsertFakeData(keyspace string, table string, numUsers int) error {
-	users := GetFakeUsers(numUsers)
-	cql := fmt.Sprintf(`INSERT INTO %s.%s (name, gender, phone) VALUES(?, ?, ?)`, keyspace, table)
+func (c *Client) ReadUsers(keyspace string, table string, limit int) ([]data.User, error) {
+	cql := fmt.Sprintf("SELECT name, gender, phone FROM %s.%s LIMIT %d", keyspace, table, limit)
+	iter := c.session.Query(cql).Iter()
+	nowRows := iter.NumRows()
 
-	batch := c.session.NewBatch(gocql.LoggedBatch)
-	for _, user := range users {
-		batch.Query(cql, user.Name, user.Gender, user.Phone)
+	users := make([]data.User, nowRows)
+
+	idx := 0
+	var user data.User
+	for iter.Scan(&user.Name, &user.Gender, &user.Phone) {
+		users[idx] = user
+		idx++
 	}
 
-	return c.session.ExecuteBatch(batch)
+	if err := iter.Close(); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}
+
+func (c *Client) WriteUsers(keyspace string, table string, batchSize int, numberOfUser int) error {
+	users := data.CreateFakeUsers(numberOfUser)
+	cql := fmt.Sprintf("INSERT INTO %s.%s (name, gender, phone) VALUES(?, ?, ?)", keyspace, table)
+
+	batch := c.session.NewBatch(gocql.UnloggedBatch)
+	for i, user := range users {
+		batch.Query(cql, user.Name, user.Gender, user.Phone)
+
+		if (i+1)%batchSize == 0 || i+1 == numberOfUser {
+			if err := c.session.ExecuteBatch(batch); err != nil {
+				return err
+			}
+			batch = c.session.NewBatch(gocql.LoggedBatch)
+		}
+	}
+	return nil
 }
